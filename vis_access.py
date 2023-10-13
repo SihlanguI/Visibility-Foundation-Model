@@ -20,6 +20,11 @@ def read_rdb(path):
     """
     data = katdal.open(path)
     return data
+
+def test():
+    a = 2
+    b = 3
+    return a+b
     
 
 def load(dataset, indices, vis, weights, flags):
