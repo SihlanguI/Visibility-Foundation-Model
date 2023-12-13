@@ -40,6 +40,7 @@ class LayerNorm(nn.Module):
 class MaskedAttention(nn.Module):
     def __init__(self):
         super().__init__()
+        
 
 
 
