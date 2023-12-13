@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 import vis_access
 import corrprods
+from torch.nn import functional as F 
 
 #Define Hyperparameters Required
 
@@ -42,9 +43,11 @@ def read_rdb(path):
     bl_av_HH = np.mean((np.abs(data_HH[:, 0:2016])), axis =0)
     bl_av_HH_np =  np.reshape(bl_av_HH, -1)
     data_test =  torch.tensor(np.abs(bl_av_HH_np), dtype=torch.long)
-    return data_test
+    data_size = len(data_test)
+    return data_test, data_size
 
 data_test = read_rdb(path)
+data_size = read_rdb(path)
 
 n = int(0.8*len(data_test)) 
 train_points = data_test[:n]
@@ -69,6 +72,17 @@ def get_tensorBTC(xb):
     numpy_array = xb_BTC_new.numpy()
     torch_tensor = torch.tensor(numpy_array, dtype=torch.int64)
     return torch_tensor
+
+class LayerNorm(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.linear = nn.Linear(data_size)
+        self.parameters = list(model.parameters())
+        self.weight = self.parameters[0]
+        self.bias = self.parameters[1]
+
+    def forward(self,Input):
+        return  F.layer_norm(Input, self.weight,self.weight.shape, self.bias, 1e-5)  
 
 
 
