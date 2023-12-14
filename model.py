@@ -146,9 +146,32 @@ class PositionwiseFFN(nn.Module):
     
 
 
+class ResidualBlock(nn.Module):
+    def __init__():
+        super().__init__()
+
+        """
+        
+        
+        """
+
+class Block(nn.Module):
+    def __init__(self,):
+        super().__init__()
+        """
+        The purpose of the block layer is to apply the layer normalization, masked attention, and feedforward network. 
+
+        Returns:
+        -------
+        This layer outputs the addition of the original inputs and outputs of the attention layer.
+
+        """
+ 
 
 
-
+class Decoder(nn.Module):
+    def __init__(self,):
+        super().__init__()
 
     
 
