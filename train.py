@@ -72,4 +72,5 @@ def get_tensorBTC(xb):
     xb_BTC_new = tf.tile(xb_BTC , [1, 1, 8]) 
     numpy_array = xb_BTC_new.numpy()
     torch_tensor = torch.tensor(numpy_array, dtype=torch.int64)
-    return torch_tensor
+    B,T,C = torch_tensor.shape
+    return torch_tensor, B,T,C
