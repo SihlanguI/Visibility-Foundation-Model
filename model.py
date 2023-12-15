@@ -22,6 +22,7 @@ eval_interval = 300
 learning_rate = 1e-2
 device = torch.device('cpu')
 eval_iters = 200
+n_layer = 4 # number of layers for the deep NN
 dropout = 0.1
 
 
@@ -108,7 +109,7 @@ class PositionalEncoder(nn.Module):
 
         self.register_buffer('pe', pe)
 
-    def forward(self, OutputAttention):
+    def forward(self, OutputAttention):  
         OutputAttention = OutputAttention+ self.pe[:, : OutputAttention.size(1)].requires_grad_(False) 
 
 
@@ -143,24 +144,26 @@ class PositionwiseFFN(nn.Module):
     
 torch_tensor = torch.zeros(block_size, batch_size, 8)
 class Block(nn.Module):
-    def __init__(self,):
+    def __init__(self, d_model):
 
         data_size = len(torch_tensor)
-        d_model = torch_tensor.size(0) #B
+        d_model = torch_tensor.size(0) # shape of B
         super().__init__()
         """
         The purpose of the block layer is to apply the layer normalization, masked attention, and feedforward network. 
 
         Returns:
         -------
-        This layer outputs the addition of the original inputs and outputs of the attention layer.
+        This layer outputs the addition of the original input tensor and output of the attention layer.
+
+        Need to add a residual component to either this block or the self Attention block.
 
         """
-        self.ln1 = LayerNorm(data_size)
+        self.ln1 = LayerNorm(d_model)
         head_size = data_size//d_model
         self.MaskedAttention = MaskedAttention(d_model, head_size)
-        self.ffd = PositionwiseFFN(data_size)
-        self.ln2 = LayerNorm(data_size)
+        self.ffd = PositionwiseFFN(d_model)
+        self.ln2 = LayerNorm(d_model)
 
     def forward(self, x ):
 
@@ -172,8 +175,35 @@ class Block(nn.Module):
 
 
 class TransformerDecoder(nn.Module):
-    def __init__(self,):
+    def __init__(self, d_model, n_head, n_layer):
         super().__init__()
+
+        d_model = torch_tensor.size(0) # shape of B
+
+        """
+        No embeddings.
+        * Initialise position, block, prediction instances. 
+        * Position instance of the PositionalEncoder class will add positional information to the input tensor.
+        * Block - Sequence of transformer blocks, the number of blocks are determined by n_layer. 
+        * Prediction instance is responsible for predicting the next value.
+        """
+        self.position = PositionalEncoder(d_model)
+        self.block = nn.Sequential(*[Block() for _ in range(n_layer)])
+        self.prediction = nn.Linear(d_model,1 ) #set to one, since we predicting the next value
+
+
+    def forward(self, torch_tensor, targets=None):
+
+        PositionToken = self.position(torch_tensor)
+        x = torch_tensor+PositionToken
+        x=self.blocks(x)
+        output = self.lm_head(x[:,-1,:])
+
+
+
+
+
+
 
         
         
