@@ -14,20 +14,19 @@ import vis_access
 import corrprods
 
 #Define Hyperparameters Required
-
 block_size = 4  # B Essentially the context length, in this case predicts 5th token, will change the paramter later
-batch_size = 8  # T
+batch_size = 8  # T 
 max_iters = 3000
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_interval = 300
 learning_rate = 1e-2
-device = torch.device('cpu')
+
 eval_iters = 200
-n_layer = 4 # number of layers for the deep NN
+n_layer = 6 # number of layers for the deep NN
 p = 0.1
-d_model = 8 #C
+d_model = 8
+d_ff = 4*d_model #From Paper
 n_head = 4
-head_size = 8 #Dimension of d_model, still unsure about this, however if doesnt match d_model, results in issues with the linear layers multiplcation.
 
 
 torch.manual_seed(1337) #Torch seed for randomising inputs, somehow works to prevent exploding loss 
@@ -182,10 +181,6 @@ class PositionwiseFFN(nn.Module):
 
 class Block(nn.Module):
     def __init__(self, d_model, n_head):
-
-        torch_tensor = torch.zeros(block_size, batch_size, 8)
-        data_size = len(torch_tensor)
-        d_model = torch_tensor.size(0) # shape of B
         super().__init__()
         """
         The purpose of the block layer is to apply the layer normalization, masked attention, and feedforward network. 
@@ -232,7 +227,7 @@ class TransformerDecoder(nn.Module):
         self.prediction = nn.Linear(d_model,1 ) #set to one, since we predicting the next value
 
 
-    def forward(self, torch_tensor, targets=None):
+    def forward(self, xtensor, ytensor):
 
         """
         The input tensor has been passed through the hidden states of the transfomer blocK
@@ -240,158 +235,19 @@ class TransformerDecoder(nn.Module):
 
         """
 
-        PositionToken = self.position(torch_tensor)
-        x = torch_tensor+PositionToken
+        PositionToken = self.position(xtensor)
+        x = xtensor+PositionToken
         x=self.blocks(x)
         output = self.prediction(x[:,-1,:])  #simlar to andrej logits = logits[:,-1,:]
-        targets =targets[:,-1,-1:]           #Trying to change the targets to match the output 4,1
-         
-        loss = torch.nn.functional.mse_loss(output, targets)
+        if ytensor is not None:
+            targets = ytensor.view(ytensor.size(0), -1)[:, 0:1]
 
+           #print(targets.shape)
+            #loss = torch.nn.functional.mse_loss(output, targets)
+            loss = torch.mean((output - targets)**2)
 
-        return output
-
-
-#DataLoader + Training Loop
-
-"""
-Connecting directly to the Archive.
-"""
-
-path="https://archive-gw-1.kat.ac.za/1701021676/1701021676_sdp_l0.full.rdb?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiJ9.eyJpc3MiOiJrYXQtYXJjaGl2ZS5rYXQuYWMuemEiLCJhdWQiOiJhcmNoaXZlLWd3LTEua2F0LmFjLnphIiwiaWF0IjoxNzAyNDczOTY2LCJwcmVmaXgiOlsiMTcwMTAyMTY3NiJdLCJleHAiOjE3MDMwNzg3NjYsInN1YiI6InRrYXNzaWVAc2FyYW8uYWMuemEiLCJzY29wZXMiOlsicmVhZCJdfQ.CLCieZa-9IRgV4HrD8O37I9RwxvsavQu_KljILjP2uTUEiB9ePwVUia4Td4RZ_7c7xz-HvikgfCkxpo7LvyCbQ"
-
-def read_rdb(path):
-
-    data = katdal.open(path)
-    data.select(dumps = slice(0,10), scans ='track', pol='HH', corrprods='cross')
-    data_HH = np.zeros((4096, 2016))
-    bl_idx_HH = corrprods.get_bl_idx( data, 64)
-    data_HH[:,:] = np.nan
-    data_HH[:, bl_idx_HH] = data.vis[2,:,:]
-    bl_av_HH = np.mean((np.abs(data_HH[:, 0:2016])), axis =0)
-    bl_av_HH_np =  np.reshape(bl_av_HH, -1)
-    data_test =  torch.tensor(np.abs(bl_av_HH_np), dtype=torch.long)
-    data_size = len(data_test)
-    return data_test, data_size
-
-data_test = read_rdb(path)
-data_size = read_rdb(path)
-
-n = int(0.8*len(data_test)) 
-train_points = data_test[:n]
-test_points = data_test[n:]
-
-def get_batch(split):
-
-    data_test =  train_points if split == 'train' else test_points  
-                                                                           
-    ix = torch.randint(len(data_test)-block_size, (batch_size, )) 
-    x = torch.stack([data_test[i:i+block_size] for i in ix])
-    y = torch.stack([data_test[i+1:i+block_size+1] for i in ix])
-    x, y = x.to(device), y.to(device)
-    return x, y
-
-
-xb, yb = get_batch('train')
- 
-
-
-def get_xtensorBTC(xb):
-    """
-    Function Returns Input as tensor with shape B,T,C. Necessary for masked attention level.
-    """
-    xb_BTC = tf.expand_dims(xb, axis=2)
-    xb_BTC_new = tf.tile(xb_BTC , [1, 1, 8]) 
-    numpy_array = xb_BTC_new.numpy()
-    xtorch_tensor = torch.tensor(numpy_array, dtype=torch.int64)
-    B,T,C = xtorch_tensor.shape
-    return xtorch_tensor, B,T,C  
-
-def get_ytensorBTC(yb):
-    """
-    Function Returns Target as tensor with shape B,T,C. Necessary for loss, has targets and inupt tensors should have same shape.
-    """
-    yb_BTC = tf.expand_dims(yb, axis=2)
-    yb_BTC_new = tf.tile(yb_BTC , [1, 1, 8]) 
-    numpy_array = yb_BTC_new.numpy()
-    ytorch_tensor = torch.tensor(numpy_array, dtype=torch.int64)
-    B,T,C = ytorch_tensor.shape
-    return ytorch_tensor, B,T,C
-
-"""
-Below I am using the above functions to get the B,T,C shape Input and Target tensors for the model parameter.
-"""
-xtorch_tensor, B, T,C = get_xtensorBTC(xb)
-ytorch_tensor, B, T,C = get_ytensorBTC(yb)
-xtorch_tensor = xtorch_tensor.float()
-ytorch_tensor = ytorch_tensor.float()
-
-
-@torch.no_grad()
-def estimate_loss():
-    out = {}
-    model.eval()
-    for split in ['train', 'val']:
-        losses = torch.zeros(eval_iters)
-        for k in range(eval_iters):
-            X, Y = get_batch(split)
-            prob, loss = model(X, Y)
-            losses[k] = loss.item()
-        out[split] = losses.mean()
-    model.train()
-    return prob
-    
-
-
-model = TransformerDecoder()
-m = model.to(device)
-
-
-optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate) #takes the gradients and updates the parameters
- 
-
-
-for iter in range(max_iters):
-    # Every once in a while evaluate the loss on train and val sets
-    if iter % eval_interval == 0:
-        losses = estimate_loss()
-
-   
-    # Evaluate the loss
-    prob, loss = model(xb, yb) 
-    #print("Loss:", loss)
-
-    loss.requires_grad
-    optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
-        
-
-    
-
-
-
-
-
-
-
-
-
-
-
-        
-        
-    
-
-    
-
-
-
-
-
-
-
-
-
+            return output, loss
+        else:
+            return output
 
 
