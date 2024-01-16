@@ -1,21 +1,10 @@
+
 #Training Loop
-import os
-print(os.getcwd())
-import numpy as np
-import math
-import torch
-import torch.nn as nn
-import katdal
 import numpy as np
 import torch
-import sys
-sys.path.append('/home/tkassie/.local/share/jupyter/runtime/')
-import sys
-sys.path.append('/home/tkassie/.local/share/jupyter/runtime/')
 from corrprods import get_bl_idx, get_corrprods #saved isaac functions, for retrieving antenna-pol products for the baseline lengths orderings of the visibility data
 from model import TransformerDecoder
-from torch.nn.utils import clip_grad_norm_
-from tqdm import tqdm
+
 
 
 
@@ -46,10 +35,7 @@ Connecting directly to the Archive.
 """
 
 path="https://archive-gw-1.kat.ac.za/1701021676/1701021676_sdp_l0.full.rdb?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiJ9.eyJpc3MiOiJrYXQtYXJjaGl2ZS5rYXQuYWMuemEiLCJhdWQiOiJhcmNoaXZlLWd3LTEua2F0LmFjLnphIiwiaWF0IjoxNzA0NzE2MjAwLCJwcmVmaXgiOlsiMTcwMTAyMTY3NiJdLCJleHAiOjE3MDUzMjEwMDAsInN1YiI6InRrYXNzaWVAc2FyYW8uYWMuemEiLCJzY29wZXMiOlsicmVhZCJdfQ.v7zswHdPmiQpDE0DAiUe1-MpnytpEfCgyEZlG8J39oHYN1xKgD2x4UxlWN454fHHqmXS0VawQ4nX6qKqlFEyDA"
-def read_rdb(path):
-    data = katdal.open(path)
-    data.select(dumps = slice(0,10), scans ='track', pol='HH', corrprods='cross')
-    data_HH = np.zeros((4096, 2016))
+
     bl_idx_HH = get_bl_idx( data, 64)
     data_HH[:,:] = np.nan
 
@@ -69,6 +55,7 @@ def get_batch(split):
     y = torch.stack([data_test[i+1:i+block_size+1] for i in ix])
     x, y = x.to(device), y.to(device)
     return x, y
+
 def get_xtensorBTC(xb):
     xb_BTC = np.tile(xb.cpu()[:,:,np.newaxis], (1,1,8))
     xtorch_tensor = torch.tensor(xb_BTC, dtype=torch.int64).to('cuda')
@@ -131,3 +118,4 @@ for iter in range(max_iters):
 
         losses = estimate_loss()
         print(f"step {iter}: train loss {losses['train']:.4f}")
+
