@@ -3,7 +3,9 @@ import torch
 import torch.nn as nn
 import katdal
 import tensorflow as tf
-import vis_access
+
+from vis_access import *
+from model import *
 
 # Hyperparameters
 batch_size = 4
@@ -64,7 +66,7 @@ def get_ytensorBTC(yb):
     return ytorch_tensor, B,T,C
 
 
-path="https://archive-gw-1.kat.ac.za/1701021676/1701021676_sdp_l0.full.rdb?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiJ9.eyJpc3MiOiJrYXQtYXJjaGl2ZS5rYXQuYWMuemEiLCJhdWQiOiJhcmNoaXZlLWd3LTEua2F0LmFjLnphIiwiaWF0IjoxNzAyNDczOTY2LCJwcmVmaXgiOlsiMTcwMTAyMTY3NiJdLCJleHAiOjE3MDMwNzg3NjYsInN1YiI6InRrYXNzaWVAc2FyYW8uYWMuemEiLCJzY29wZXMiOlsicmVhZCJdfQ.CLCieZa-9IRgV4HrD8O37I9RwxvsavQu_KljILjP2uTUEiB9ePwVUia4Td4RZ_7c7xz-HvikgfCkxpo7LvyCbQ"
+path="https://archive-gw-1.kat.ac.za/1696230173/1696230173_sdp_l0.full.rdb?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiJ9.eyJpc3MiOiJrYXQtYXJjaGl2ZS5rYXQuYWMuemEiLCJhdWQiOiJhcmNoaXZlLWd3LTEua2F0LmFjLnphIiwiaWF0IjoxNjk2NTE0MDEyLCJwcmVmaXgiOlsiMTY5NjIzMDE3MyJdLCJleHAiOjE2OTcxMTg4MTIsInN1YiI6InRrYXNzaWVAc2FyYW8uYWMuemEiLCJzY29wZXMiOlsicmVhZCJdfQ.6CI-3QZ8qj47vSz-W3rbJ3Ga3E2U3mMyU2XNbOwsJXpUGKc_RHQ497iWUyuqNmJRp0-_CTyaN9aHbtxA7rar-A"
 
 data_test, data_size = read_rdb(path)
 n = int(0.8*len(data_test)) 

@@ -265,8 +265,3 @@ class TransformerDecoder(nn.Module):
             return output, loss
         else:
             return output
-
-
-                                                                                                                      296,0-1       Bot
-
-
