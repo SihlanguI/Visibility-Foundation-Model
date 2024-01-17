@@ -1,30 +1,21 @@
-
 import math
 import torch
 import torch.nn as nn
-import katdal
-import argparse
-import logging
 import numpy as np
 import torch
-import matplotlib.pyplot as plt
-#import tensorflow as tf
-from torch.nn import functional as F 
+from torch.nn import functional as F
+
+torch.manual_seed(1337)
+
 
 #Define Hyperparameters Required
-
-
 block_size = 4  # B Essentially the context length, in this case predicts 5th token, will change the paramter later
 batch_size = 8  # T
-max_iters = 3000
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-eval_interval = 300
-learning_rate = 1e-2
-device = torch.device('cpu')
-eval_iters = 200
-n_layer = 4 # number of layers for the deep NN
-dropout = 0.1
-#d_ff = 4*d_model #From Paper
+n_layer = 6 # number of layers for the deep NN
+p = 0.1
+d_model = 8
+n_head = 4
 
 class LayerNorm(nn.Module):
     """
@@ -41,7 +32,7 @@ class LayerNorm(nn.Module):
         self.alpha = nn.Parameter(torch.ones(1)) # Multipled to the input #Makes the parameter learnable
         self.bias = nn.Parameter(torch.ones(1))  # Addition parameter to the input
 
-        
+
 
     def forward(self,Input):
 
@@ -68,20 +59,26 @@ class MaskedAttention(nn.Module):
         the dimensionality of the Q,K,V input projects.
 
         """
+        self.head_size = head_size
         self.Q = nn.Linear(d_model, head_size, bias=False)
         self.K = nn.Linear(d_model, head_size, bias=False)
         self.V = nn.Linear(d_model, head_size, bias=False)
-        self.register_buffer('tril', torch.tril(torch.ones(batch_size, batch_size)))  #Shape (T, T)
+        #self.register_buffer('tril', torch.tril(torch.ones(T, T))) #Shape (T, T)
 
-    def forward(self, torch_tensor):
+        self.trill = torch.tril(torch.ones((batch_size,batch_size))).to('cuda') #The above doesnt seem to work well replace with this implemnetaion of the triangular matrix torch.ones
+    def forward(self, xtorch_tensor):
         """
         Apply the linear layers self.K &self.Q to compute the respective key and query tensors.
 
         """
-        B,T,C = torch_tensor
-        key = self.K(torch_tensor.float())    #Shape (B,T,C)
-        query = self.Q(torch_tensor.float())  #Shape (B,T,C)
-        value = self.V(torch_tensor.float())
+        #xtorch_tensor, B, T,C = get_xtensorBTC(xb)
+
+        key = self.K(xtorch_tensor)    #Shape (B,T,C)
+        query = self.Q(xtorch_tensor)  #Shape (B,T,C)
+        value = self.V(xtorch_tensor)
+        trill = self.trill
+        #print("query shape:", query.shape)
+        #print("key shape:", key.shape)
 
         """
         Compute the Attention Scores:
@@ -94,17 +91,17 @@ class MaskedAttention(nn.Module):
         
         """
 
-        wei = query @ key.transpose(-2,-1)*C**-0.5         #Shapes (B, T, C) @ (B, C, T) ----> (B, T, T)  #Normalised using scaled attention
-        wei = wei.masked_fill(self.tril[:T,:T] == 0, float('-inf')) 
+        wei = query @ key.transpose(-2,-1)        #Shapes (B, T, C) @ (B, C, T) ----> (B, T, T)  #Normalised using scaled attention
+        wei = wei.masked_fill(trill == 0, float('-inf'))
         wei = F.softmax(wei, dim=-1)
-        Output = wei @ value                              #Shape (B, T, headsize)
+        Output = wei @ value
+        #print(Output.shape)                             #Shape (B, T, headsize)  Bug returning (B, T, C*head_size)
 
         return Output
 
 
-
 class PositionalEncoder(nn.Module):
-    def __init__(self, d_model: int, dropout:float=0.1,max_len: int=5000 ):
+    def __init__(self, d_model: int, batch_size : int,  dropout:float=0.1,max_len: int=10 ):
 
         """
         Parameters:
@@ -117,30 +114,35 @@ class PositionalEncoder(nn.Module):
 
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
-     
-        pe = torch.zeros(max_len, d_model)    
-        k = torch.arange(0, max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2) * -(math.log(10000.0) / d_model))
-   
-        pe[:, 0::2] = torch.sin(k * div_term)    
-  
-        pe[:, 1::2] = torch.cos(k * div_term)  
-    
-        pe = pe.unsqueeze(0) 
+        self.max_len = max_len
+        self.d_model = d_model
+        self.batch_size = batch_size
+
+        pe = torch.zeros(max_len, d_model)
+        #print("Shape pe:",np.shape(pe))
+        k = torch.arange(0,max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
+
+        pe[:, 0::2] = torch.sin(k * div_term)
+
+        pe[:, 1::2] = torch.cos(k * div_term)
+
+        pe = pe.unsqueeze(0) #tensor (1,max_len,  batch_size, d_model)
 
         self.register_buffer('pe', pe) #The position will be saved in a register (not be updated with the model)
 
-    def forward(self, x):  
-        x = x+ self.pe[:, :x.size(1)].requires_grad_(False) # Adds the X inputtesnor to the positions, the requires_grad makes sure that the positions are not learnt (ie the positions will not be updated with weights/bias)
-        Output = self.dropout(x)
+    def forward(self, xtorch_tensor):
+
+        #print("Shape pe:",np.shape(xtorch_tensor))
 
 
-        return Output
-    
+        xtorch_tensor = xtorch_tensor + self.pe[:,:xtorch_tensor.size(1),:].to('cuda').requires_grad_(False)  # Adds the X inputtesnor to the positions, the requires_grad makes sure that the positions are not learnt (ie the positions will not be updated with weights/bias)
+        Output = self.dropout(xtorch_tensor)
 
 
+        return Output.to('cuda')
 class PositionwiseFFN(nn.Module):
-    def __init__(self, d_model: int, d_ffn: int, dropout: float=0.1):
+    def __init__(self, d_model: int, dropout):
         super().__init__()
         """
         FeedForward Class:
@@ -150,11 +152,11 @@ class PositionwiseFFN(nn.Module):
 
         """
 
-        self.L1 = nn.Linear(d_model, d_ffn)      
-        self.L2 = nn.Linear(d_ffn, d_model)
-        self.dropout = nn.Dropout(dropout)  
+        self.L1 = nn.Linear(d_model, d_model)
+        self.L2 = nn.Linear( d_model, d_model)
+        self.dropout = nn.Dropout(p=dropout)
 
-    def forward(self, Output):
+    def forward(self, input_tensor):
         """
         Parameters:
         ----------
@@ -165,18 +167,18 @@ class PositionwiseFFN(nn.Module):
         -------
         The forward method returns the conversion of the batched inputs.
         """
-        self.FFnet = self.L1(self.dropout(torch.relu(self.L2(Output))))
+        #print("ffwd",np.shape(self.L1))
+        #print("L1 weight shape:", np.shape(self.L1.weight))
+        self.FFnet = self.dropout(torch.relu(self.L2(self.L1(input_tensor))))
 
         return self.FFnet
-    
 
 
-torch_tensor = torch.zeros(block_size, batch_size, 8)
+
+
 class Block(nn.Module):
-    def __init__(self, d_model):
+    def __init__(self, d_model, n_head):
 
-        data_size = len(torch_tensor)
-        d_model = torch_tensor.size(0) # shape of B
         super().__init__()
         """
         The purpose of the block layer is to apply the layer normalization, masked attention, and feedforward network. 
@@ -189,25 +191,52 @@ class Block(nn.Module):
 
         """
         self.ln1 = LayerNorm(d_model)
-        head_size = data_size//d_model
-        self.MaskedAttention = MaskedAttention(d_model, head_size)
-        self.ffd = PositionwiseFFN(d_model)
+        head_size = d_model//n_head
+        #print(f"headsize cal is {head_size}")
+
+        self.MaskedAttention = MaskedAttention(d_model, 8)
+        self.ffd = PositionwiseFFN(d_model, p)
         self.ln2 = LayerNorm(d_model)
 
     def forward(self, x ):
+        #print(x.shape)
+        #print(self.MaskedAttention(self.ln1(x)).shape)
 
-        x = x + self.MaskedAttention(self.ln1)
-        x = x + self.ffd(self.ln2)
-        
+        attention_output = self.MaskedAttention(self.ln1(x))
+        #print("Attention output shape:", attention_output.shape)
+
+        x_attention = x + attention_output
+        #print("Output shape:", x_attention.shape)
+        x_feedforward = self.ffd(self.ln2(x_attention))
+        #print("Feedforward output shape:", x_feedforward.shape) shape is (4, 8,8 )
+        x = x_attention + x_feedforward
+
+
         return x
+class ResidualConnection(nn.Module):
+    def __init__(self, p):
+        super().__init__
+        self.dropout = nn.Dropout(p)
+        self.norm = LayerNorm()
+    def forward(self, x, sublayer):
+        return x + self.dropout(sublayer(self.norm(x)))
+
+
+class lmHead(nn.Module):
+    def __init__(self, d_model):
+        super(lmHead, self).__init__()
+        self.linear = nn.Linear(d_model, d_model)
+
+    def forward(self, hidden_states): #Hidden states, is the xtensor that has gone through the above transformer layers
+        logits = self.linear(hidden_states)
+        return logits
 
 
 
 class TransformerDecoder(nn.Module):
-    def __init__(self, d_model, n_head, n_layer):
+    def __init__(self, d_model, n_layer):
         super().__init__()
 
-        d_model = torch_tensor.size(0) # shape of B
 
         """
         No embeddings.
@@ -216,43 +245,29 @@ class TransformerDecoder(nn.Module):
         * Block - Sequence of transformer blocks, the number of blocks are determined by n_layer. 
         * Prediction instance is responsible for predicting the next value.Contains a linear layer to produce final model prediction.
         """
-        self.position = PositionalEncoder(d_model)
-        self.block = nn.Sequential(*[Block() for _ in range(n_layer)])
-        self.prediction = nn.Linear(d_model,1 ) #set to one, since we predicting the next value
+        self.position = PositionalEncoder(d_model, batch_size)
+        self.dropout = nn.Dropout(p)
+        self.block = nn.Sequential(*[Block(d_model, n_head) for _ in range(n_layer)])
+        self.lmHead = lmHead(d_model)
 
-
-    def forward(self, torch_tensor, targets=None):
-
+    def forward(self, xtensor, targets=None):
         """
         The input tensor has been passed through the hidden states of the transfomer blocK
         * x is the tensor that was passed through the block, the prediction instance will project the learnt representations to the oupu dimension.
 
         """
+        position = self.position(xtensor)
+        x = xtensor+position
+        x = self.dropout(x)
+        x =self.block(x)
+        if targets is not None:
+            logits = self.lmHead(x)
+            logits = logits.view(-1,logits.size(-1))
+            targets = targets.view(-1, targets.size(-1))
+            loss = F.mse_loss(logits, targets)
+        else:
+            logits = self.lmHead(x)
+            loss=None
+        return  logits, loss
 
-        PositionToken = self.position(torch_tensor)
-        x = torch_tensor+PositionToken
-        x=self.blocks(x)
-        output = self.prediction(x)
-
-
-
-
-
-
-
-        
-        
-    
-
-    
-
-
-
-
-
-
-
-
-
-
-
+                           
