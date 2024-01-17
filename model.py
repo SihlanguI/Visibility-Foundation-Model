@@ -47,7 +47,6 @@ class LayerNorm(nn.Module):
 
         return x_nu
 
-
 class MaskedAttention(nn.Module):
     def __init__(self, d_model, head_size):
         super(MaskedAttention, self).__init__()
@@ -231,6 +230,21 @@ class lmHead(nn.Module):
         logits = self.linear(hidden_states)
         return logits
 
+        x_attention = x + attention_output
+        #print("Output shape:", x_attention.shape)
+        x_feedforward = self.ffd(self.ln2(x_attention))
+        #print("Feedforward output shape:", x_feedforward.shape) shape is (4, 8,8 )
+        x = x_attention + x_feedforward
+
+
+        return x
+class ResidualConnection(nn.Module):
+    def __init__(self, p):
+        super().__init__
+        self.dropout = nn.Dropout(p)
+        self.norm = LayerNorm()
+    def forward(self, x, sublayer):
+        return x + self.dropout(sublayer(self.norm(x)))
 
 
 class TransformerDecoder(nn.Module):
