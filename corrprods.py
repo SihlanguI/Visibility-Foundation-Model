@@ -37,4 +37,4 @@ def get_bl_idx(vis, nant):
     corr_prods = get_corrprods(vis)
     bl_idx = df[corr_prods].values[0].astype(np.int32)
 
-    return bl_idx 
+return bl_idx

@@ -3,23 +3,21 @@ import torch
 import torch.nn as nn
 import numpy as np
 import torch
-from torch.nn import functional as F 
-from torch.nn import init
-
+from torch.nn import functional as F
 
 torch.manual_seed(1337)
 
-
 #Define Hyperparameters Required
-block_size = 8 # B Essentially the context length, in this case predicts 5th token, will change the paramter later
-batch_size = 256  # T
+block_size = 4  # B Essentially the context length, in this case predicts 5th token, will change the paramter later
+batch_size = 8  # T
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 n_layer = 6 # number of layers for the deep NN
 p = 0.1
 d_model = 8
-d_ff = 4*d_model #From Paper
+
 n_head = 4
 head_size=16
+
 
 
 class LayerNorm(nn.Module):
@@ -51,6 +49,7 @@ class LayerNorm(nn.Module):
         x_nu = self.alpha *(Input-mean)/(std+self.eps)+self.bias
 
         return x_nu
+
 class MaskedAttention(nn.Module):
     def __init__(self, d_model, head_size):
         super(MaskedAttention, self).__init__()
@@ -64,25 +63,24 @@ class MaskedAttention(nn.Module):
         """
 
         self.head_size = head_size
-        self.Q = nn.Linear(d_model,head_size, bias=False)
+        self.Q = nn.Linear(d_model, head_size, bias=False)
         self.K = nn.Linear(d_model, head_size, bias=False)
         self.V = nn.Linear(d_model, head_size, bias=False)
-        #self.register_buffer('tril torch.tril(torch.ones(T, T))) #Shape (T, T)
-        #The above doesnt seem to work well replace with this implemnetaion of the triangular matrix torch.ones
+        self.register_buffer('tril', torch.tril(torch.ones(T, T))) #Shape (T, T)
 
+       
     def forward(self, xtorch_tensor):
         """
         Apply the linear layers self.K &self.Q to compute the respective key and query tensors.
 
         """
+
         B, T,C = xtorch_tensor.shape
 
         key = self.K(xtorch_tensor)    #Shape (B,T,C)
         query = self.Q(xtorch_tensor)  #Shape (B,T,C)
         value = self.V(xtorch_tensor)
         trill =  torch.tril(torch.ones((T,T))).to('cuda')
-        #print("query shape:", query.shape)
-        #print("key shape:", key.shape)
 
         """
         Compute the Attention Scores:
@@ -136,6 +134,7 @@ class PositionalEncoder(nn.Module):
 
     def forward(self, xtorch_tensor):
 
+
         #print("Shape xtensor:",np.shape(xtorch_tensor))
 
         xtorch_tensor = xtorch_tensor + self.pe[:,:xtorch_tensor.size(1),:].to('cuda').requires_grad_(False)  # Adds the X inputtesnor to the positions, the requires_grad makes sure that the positions are not learnt (ie the positions will not be updated with weights/bias)
@@ -144,8 +143,6 @@ class PositionalEncoder(nn.Module):
 
         return Output.to('cuda')
     
-
-
 class PositionwiseFFN(nn.Module):
     def __init__(self, d_model: int, dropout):
         super().__init__()
@@ -156,7 +153,7 @@ class PositionwiseFFN(nn.Module):
         
 
         """
-
+        
         self.L1 = nn.Linear(d_model, d_model)      
         self.L2 = nn.Linear( d_model, d_model)
         self.dropout = nn.Dropout(p=dropout)
@@ -177,7 +174,6 @@ class PositionwiseFFN(nn.Module):
         self.FFnet = self.dropout(torch.relu(self.L2(self.L1(input_tensor))))
 
         return self.FFnet
-    
 
 
 
@@ -218,7 +214,6 @@ class Block(nn.Module):
 
 
         return x
-
 class ResidualConnection(nn.Module):
     def __init__(self, p):
         super().__init__
@@ -237,20 +232,27 @@ class lmHead(nn.Module):
         logits = self.linear(hidden_states)
         return logits
 
+class ResidualConnection(nn.Module):
+    def __init__(self, p):
+        super().__init__
+        self.dropout = nn.Dropout(p)
+        self.norm = LayerNorm()
+    def forward(self, x, sublayer):
+        return x + self.dropout(sublayer(self.norm(x)))
+
 
 
 class TransformerDecoder(nn.Module):
     def __init__(self, d_model, n_layer):
         super().__init__()
 
-        
         """
         No embeddings.
         * Initialise position, block, prediction instances. 
         * Position instance of the PositionalEncoder class will add positional information to the input tensor.
         * Block - Sequence of transformer blocks, the number of blocks are determined by n_layer. 
         * Prediction instance is responsible for predicting the next value.Contains a linear layer to produce final model prediction.
-        """                 
+         """
         self.position = PositionalEncoder(d_model, batch_size)
         self.dropout = nn.Dropout(p)
         self.block = nn.Sequential(*[Block(d_model, n_head) for _ in range(n_layer)])
@@ -266,7 +268,6 @@ class TransformerDecoder(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-
     def forward(self, xtensor, targets=None):
         """
         The input tensor has been passed through the hidden states of the transfomer blocK
@@ -277,29 +278,13 @@ class TransformerDecoder(nn.Module):
         x = xtensor+position
         x = self.dropout(x)
         x =self.block(x)
-        logits = self.lmHead(x)
-        if targets is not None:
-    
-           # logits = logits.view(-1,logits.size(-1))
-           # maxlogits = torch.max(logits, dim=1, keepdim=True).values
-           # normlogits = logits-maxlogits
-           # prob =F.softmax(normlogits, dim=1)
-            #print(f"logits", normlogits.shape)
-           # targets = targets.view(-1, targets.size(-1))
-            #print(f"targets", targets.shape)
-            #print("Logits:", normlogits)
-            #print("Targets:", targets)
-            B,T,C =logits.shape
-            assert logits.shape[0] == targets.shape[0], "Number of elements in targets does not match logits"
-             # Reshape logits to [batch_size * block_size, num_channels]
-            logits_flat = logits.view(B * T, C)
 
-# Reshape targets to [batch_size * block_size]
-            targets_flat = targets.view(-1)
- 
-           # print("logits shape:", logits.shape)
-           # print("targets shape:", targets.shape)
-            loss =F.mse_loss(logits, targets)
+        if targets is not None:
+          B,T,C =logits.shape
+          assert logits.shape[0] == targets.shape[0], "Number of elements in targets does not match logits"
+          
+          targets_flat = targets.view(-1)
+          loss =F.mse_loss(logits, targets)
 
 
             #loss = F.cross_entropy(normlogits, targets, ignore_index=-1)
@@ -307,4 +292,9 @@ class TransformerDecoder(nn.Module):
             logits = self.lmHead(x)
             loss=None
         return  logits, loss
+
+                           
+
+
+          
             

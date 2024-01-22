@@ -1,34 +1,26 @@
 
-
 #Training Loop
-import os
-print(os.getcwd())
 import numpy as np
-import math
-import torch
 import torch.nn as nn
 import katdal
+import torch
 from corrprods import get_bl_idx, get_corrprods
 from model import TransformerDecoder
 
 
+
 #Define Hyperparameters Required
 
-batch_size = 256
+
+batch_size = 4
 block_size = 8
 max_iters = 5000
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-eval_interval = 100
+eval_interval = 300
 learning_rate = 1e-3
-eval_iters = 200
+eval_iters = 300
 dropout = 0.1
-max_iters = 5000
 n_layer = 6 # number of layers for the deep NN
-p = 0.1
-d_model = 8
-d_ff = 4*d_model #From Paper
-n_head = 4
-head_size =8
 C=8
 
 
@@ -46,30 +38,30 @@ def read_rdb(path):
     data_HH = np.zeros((4096, 2016))
     bl_idx_HH = get_bl_idx( data, 64)
     data_HH[:,:] = np.zeros_like(data_HH)
-   
     data_HH[:, bl_idx_HH] = np.abs(data.vis[2,:,:])
     bl_av_HH = np.mean((np.abs(data_HH[:, 0:2016])), axis =0)
     bl_av_HH_np =  np.reshape(bl_av_HH, -1)
     data_test =  torch.tensor(bl_av_HH_np, dtype=torch.int64)
     data_size = len(data_test)
+    
     return data_test, data_size
 
 data_test, data_size = read_rdb(path)
 
 characters = sorted(list(set(data_test))) #sorts the data corpus
 #print(characters)
-print(len(characters))
+#print(len(characters))
 
 character_masked = [char if char>=0 else 0 for char in characters]
-print(character_masked)
+#print(character_masked)
 
 
 data = torch.tensor(character_masked, dtype=torch.long)
 n = int(0.9*len(data)) # first 90% will be train, rest val
 train_data = data[:n]
 val_data = data[n:]
-print(data)
-print(data.dtype)
+#print(data)
+#print(data.dtype)
 
 def get_batch(split):
 
@@ -84,10 +76,8 @@ def get_batch(split):
 def get_tensorBTC(xb):
     xb_BTC = np.tile(xb.cpu()[:,:,np.newaxis], (1,1,8))
     torch_tensor = torch.tensor(xb_BTC, dtype=torch.int64).to('cuda')
-    B,T,C = torch_tensor.shape
-    #prprint("Tensor Shape:",xtorch_tensor.shape)
-    return torch_tensor, B,T,C  
-
+    #print("Tensor Shape:",xtorch_tensor.shape)
+    return torch_tensor
 
 #Loss Estimate for Training
 @torch.no_grad()
@@ -98,16 +88,14 @@ def estimate_loss():
         losses = torch.zeros(eval_iters)
         for k in range(eval_iters):
             X, Y = get_batch(split)
-            xtorch_tensor, B, T,C = get_tensorBTC(X)
-            ytorch_tensor, B, T,C = get_tensorBTC(Y)
+            xtorch_tensor = get_tensorBTC(X)
+            ytorch_tensor = get_tensorBTC(Y)
 
             prob, loss = model(xtorch_tensor, ytorch_tensor.float())
             losses[k] = loss.item()
         out[split] = losses.mean()
     model.train()
     return out
-
-   
 
 data_test, data_size = read_rdb(path)
 #print(data_test.dtype)
@@ -124,14 +112,15 @@ model.train()  # the model is in training mode
 
 for iter in range(max_iters):
     X, Y = get_batch('train')
-    xtorch_tensor, B, T, C = get_tensorBTC(X)
-    ytorch_tensor, B, T, C = get_tensorBTC(Y)
+    xtorch_tensor = get_tensorBTC(X)
+    ytorch_tensor = get_tensorBTC(Y)
     prob, loss = model(xtorch_tensor, ytorch_tensor.float())
 
     loss.backward()
-  #  clip_grad_norm_(model.parameters(), max_norm=1.0)
+    clip_grad_norm_(model.parameters(), max_norm=1.0)
     #for param in model.parameters():
         #print(param.grad)
+
 
     optimizer.step()
 
@@ -141,4 +130,4 @@ for iter in range(max_iters):
 
         losses = estimate_loss()
         print(f"step {iter}: train loss {losses['train']:.4f}")
-    
+
