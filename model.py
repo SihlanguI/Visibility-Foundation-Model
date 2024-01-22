@@ -7,7 +7,6 @@ from torch.nn import functional as F
 
 torch.manual_seed(1337)
 
-
 #Define Hyperparameters Required
 block_size = 4  # B Essentially the context length, in this case predicts 5th token, will change the paramter later
 batch_size = 8  # T
@@ -15,7 +14,11 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 n_layer = 6 # number of layers for the deep NN
 p = 0.1
 d_model = 8
+
 n_head = 4
+head_size=16
+
+
 
 class LayerNorm(nn.Module):
     """
@@ -37,7 +40,7 @@ class LayerNorm(nn.Module):
     def forward(self,Input):
 
         """
-        The Layer Norm Forward uses the mean standardising formular to normalise the input batches. 
+        The Layer Norm Forward uses the mean standardising formular to normalise the input batches.
         Option can also be to use F.LayerNorm from pytorch.
         """
 
@@ -54,40 +57,40 @@ class MaskedAttention(nn.Module):
         """
         Causal/Masked Attention Class:
 
-        Map Q.K,V of input size data_size to head_size, this is done to control 
+        Map Q.K,V of input size data_size to head_size, this is done to control
         the dimensionality of the Q,K,V input projects.
 
         """
+
         self.head_size = head_size
         self.Q = nn.Linear(d_model, head_size, bias=False)
         self.K = nn.Linear(d_model, head_size, bias=False)
         self.V = nn.Linear(d_model, head_size, bias=False)
-        #self.register_buffer('tril', torch.tril(torch.ones(T, T))) #Shape (T, T)
+        self.register_buffer('tril', torch.tril(torch.ones(T, T))) #Shape (T, T)
 
-        self.trill = torch.tril(torch.ones((batch_size,batch_size))).to('cuda') #The above doesnt seem to work well replace with this implemnetaion of the triangular matrix torch.ones
+       
     def forward(self, xtorch_tensor):
         """
         Apply the linear layers self.K &self.Q to compute the respective key and query tensors.
 
         """
-        #xtorch_tensor, B, T,C = get_xtensorBTC(xb)
+
+        B, T,C = xtorch_tensor.shape
 
         key = self.K(xtorch_tensor)    #Shape (B,T,C)
         query = self.Q(xtorch_tensor)  #Shape (B,T,C)
         value = self.V(xtorch_tensor)
-        trill = self.trill
-        #print("query shape:", query.shape)
-        #print("key shape:", key.shape)
+        trill =  torch.tril(torch.ones((T,T))).to('cuda')
 
         """
         Compute the Attention Scores:
         * Dot product of the query tensor with the transpose of the key tensor.
         * Mask applied to the scaled weights.
         * Normalise the scaled weights by applying softmax.
-        * Matrix Multiply the populated weight (average*scaled*normalised) by the value tensor 
+        * Matrix Multiply the populated weight (average*scaled*normalised) by the value tensor
 
-        Returns: Scaled Attention 
-        
+        Returns: Scaled Attention
+
         """
 
         wei = query @ key.transpose(-2,-1)        #Shapes (B, T, C) @ (B, C, T) ----> (B, T, T)  #Normalised using scaled attention
@@ -97,7 +100,6 @@ class MaskedAttention(nn.Module):
         #print(Output.shape)                             #Shape (B, T, headsize)  Bug returning (B, T, C*head_size)
 
         return Output
-
 
 class PositionalEncoder(nn.Module):
     def __init__(self, d_model: int, batch_size : int,  dropout:float=0.1,max_len: int=10 ):
@@ -132,14 +134,15 @@ class PositionalEncoder(nn.Module):
 
     def forward(self, xtorch_tensor):
 
-        #print("Shape pe:",np.shape(xtorch_tensor))
 
+        #print("Shape xtensor:",np.shape(xtorch_tensor))
 
         xtorch_tensor = xtorch_tensor + self.pe[:,:xtorch_tensor.size(1),:].to('cuda').requires_grad_(False)  # Adds the X inputtesnor to the positions, the requires_grad makes sure that the positions are not learnt (ie the positions will not be updated with weights/bias)
         Output = self.dropout(xtorch_tensor)
 
 
         return Output.to('cuda')
+    
 class PositionwiseFFN(nn.Module):
     def __init__(self, d_model: int, dropout):
         super().__init__()
@@ -150,8 +153,8 @@ class PositionwiseFFN(nn.Module):
         
 
         """
-
-        self.L1 = nn.Linear(d_model, d_model)
+        
+        self.L1 = nn.Linear(d_model, d_model)      
         self.L2 = nn.Linear( d_model, d_model)
         self.dropout = nn.Dropout(p=dropout)
 
@@ -171,7 +174,6 @@ class PositionwiseFFN(nn.Module):
         self.FFnet = self.dropout(torch.relu(self.L2(self.L1(input_tensor))))
 
         return self.FFnet
-
 
 
 
@@ -230,14 +232,6 @@ class lmHead(nn.Module):
         logits = self.linear(hidden_states)
         return logits
 
-        x_attention = x + attention_output
-        #print("Output shape:", x_attention.shape)
-        x_feedforward = self.ffd(self.ln2(x_attention))
-        #print("Feedforward output shape:", x_feedforward.shape) shape is (4, 8,8 )
-        x = x_attention + x_feedforward
-
-
-        return x
 class ResidualConnection(nn.Module):
     def __init__(self, p):
         super().__init__
@@ -247,10 +241,10 @@ class ResidualConnection(nn.Module):
         return x + self.dropout(sublayer(self.norm(x)))
 
 
+
 class TransformerDecoder(nn.Module):
     def __init__(self, d_model, n_layer):
         super().__init__()
-
 
         """
         No embeddings.
@@ -258,11 +252,21 @@ class TransformerDecoder(nn.Module):
         * Position instance of the PositionalEncoder class will add positional information to the input tensor.
         * Block - Sequence of transformer blocks, the number of blocks are determined by n_layer. 
         * Prediction instance is responsible for predicting the next value.Contains a linear layer to produce final model prediction.
-        """
+         """
         self.position = PositionalEncoder(d_model, batch_size)
         self.dropout = nn.Dropout(p)
         self.block = nn.Sequential(*[Block(d_model, n_head) for _ in range(n_layer)])
         self.lmHead = lmHead(d_model)
+
+        self.apply(self._init_weights)
+
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def forward(self, xtensor, targets=None):
         """
@@ -274,14 +278,23 @@ class TransformerDecoder(nn.Module):
         x = xtensor+position
         x = self.dropout(x)
         x =self.block(x)
+
         if targets is not None:
-            logits = self.lmHead(x)
-            logits = logits.view(-1,logits.size(-1))
-            targets = targets.view(-1, targets.size(-1))
-            loss = F.mse_loss(logits, targets)
+          B,T,C =logits.shape
+          assert logits.shape[0] == targets.shape[0], "Number of elements in targets does not match logits"
+          
+          targets_flat = targets.view(-1)
+          loss =F.mse_loss(logits, targets)
+
+
+            #loss = F.cross_entropy(normlogits, targets, ignore_index=-1)
         else:
             logits = self.lmHead(x)
             loss=None
         return  logits, loss
 
                            
+
+
+          
+            

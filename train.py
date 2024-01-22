@@ -1,3 +1,4 @@
+
 #Training Loop
 import numpy as np
 import torch.nn as nn
@@ -9,6 +10,7 @@ from model import TransformerDecoder
 
 
 #Define Hyperparameters Required
+
 
 batch_size = 4
 block_size = 8
@@ -32,23 +34,40 @@ path="https://archive-gw-1.kat.ac.za/1701021676/1701021676_sdp_l0.full.rdb?token
 
 def read_rdb(path):
     data = katdal.open(path)
-    data.select(dumps = slice(0,10), scans ='track', pol='HH', corrprods='cross')
+    data.select(dumps = slice(0,50), scans ='track', pol='HH', corrprods='cross')
     data_HH = np.zeros((4096, 2016))
     bl_idx_HH = get_bl_idx( data, 64)
-    data_HH[:,:] = np.nan
-
+    data_HH[:,:] = np.zeros_like(data_HH)
     data_HH[:, bl_idx_HH] = np.abs(data.vis[2,:,:])
     bl_av_HH = np.mean((np.abs(data_HH[:, 0:2016])), axis =0)
     bl_av_HH_np =  np.reshape(bl_av_HH, -1)
-    data_test =  torch.tensor(bl_av_HH_np)
+    data_test =  torch.tensor(bl_av_HH_np, dtype=torch.int64)
     data_size = len(data_test)
+    
     return data_test, data_size
+
+data_test, data_size = read_rdb(path)
+
+characters = sorted(list(set(data_test))) #sorts the data corpus
+#print(characters)
+#print(len(characters))
+
+character_masked = [char if char>=0 else 0 for char in characters]
+#print(character_masked)
+
+
+data = torch.tensor(character_masked, dtype=torch.long)
+n = int(0.9*len(data)) # first 90% will be train, rest val
+train_data = data[:n]
+val_data = data[n:]
+#print(data)
+#print(data.dtype)
 
 def get_batch(split):
 
-    data_test =  train_points if split == 'train' else test_points
-
-    ix = torch.randint(len(data_test)-block_size, (batch_size, ))
+    data =  train_points if split == 'train' else test_points  
+                                                                           
+    ix = torch.randint(len(data_test)-block_size, (batch_size, )) 
     x = torch.stack([data_test[i:i+block_size] for i in ix])
     y = torch.stack([data_test[i+1:i+block_size+1] for i in ix])
     x, y = x.to(device), y.to(device)
@@ -57,9 +76,8 @@ def get_batch(split):
 def get_tensorBTC(xb):
     xb_BTC = np.tile(xb.cpu()[:,:,np.newaxis], (1,1,8))
     torch_tensor = torch.tensor(xb_BTC, dtype=torch.int64).to('cuda')
-    B,T,C = torch_tensor.shape
     #print("Tensor Shape:",xtorch_tensor.shape)
-    return torch_tensor, B,T,C
+    return torch_tensor
 
 #Loss Estimate for Training
 @torch.no_grad()
@@ -70,16 +88,14 @@ def estimate_loss():
         losses = torch.zeros(eval_iters)
         for k in range(eval_iters):
             X, Y = get_batch(split)
-            xtorch_tensor, B, T,C = get_tensorBTC(X)
-            ytorch_tensor, B, T,C = get_tensorBTC(Y)
+            xtorch_tensor = get_tensorBTC(X)
+            ytorch_tensor = get_tensorBTC(Y)
 
             prob, loss = model(xtorch_tensor, ytorch_tensor.float())
             losses[k] = loss.item()
         out[split] = losses.mean()
     model.train()
     return out
-
-
 
 data_test, data_size = read_rdb(path)
 #print(data_test.dtype)
@@ -96,11 +112,16 @@ model.train()  # the model is in training mode
 
 for iter in range(max_iters):
     X, Y = get_batch('train')
-    xtorch_tensor, B, T, C = get_tensorBTC(X)
-    ytorch_tensor, B, T, C = get_tensorBTC(Y)
+    xtorch_tensor = get_tensorBTC(X)
+    ytorch_tensor = get_tensorBTC(Y)
     prob, loss = model(xtorch_tensor, ytorch_tensor.float())
+
     loss.backward()
-    #clip_grad_norm_(model.parameters(), max_norm=1.0)
+    clip_grad_norm_(model.parameters(), max_norm=1.0)
+    #for param in model.parameters():
+        #print(param.grad)
+
+
     optimizer.step()
 
     optimizer.zero_grad() # Back propation of the model weights
@@ -109,3 +130,4 @@ for iter in range(max_iters):
 
         losses = estimate_loss()
         print(f"step {iter}: train loss {losses['train']:.4f}")
+
