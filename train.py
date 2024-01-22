@@ -117,7 +117,7 @@ for iter in range(max_iters):
     prob, loss = model(xtorch_tensor, ytorch_tensor.float())
 
     loss.backward()
-    clip_grad_norm_(model.parameters(), max_norm=1.0)
+    #clip_grad_norm_(model.parameters(), max_norm=1.0)
     #for param in model.parameters():
         #print(param.grad)
 
